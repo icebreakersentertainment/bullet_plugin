@@ -1,6 +1,6 @@
 #include <BulletCollision/CollisionShapes/btHeightfieldTerrainShape.h>
 #include <BulletCollision/CollisionDispatch/btGhostObject.h>
-
+#include <glm/gtx/string_cast.hpp>
 #include "logger/ILogger.hpp"
 
 #include "Bullet.hpp"
@@ -13,6 +13,55 @@ namespace physics
 {
 namespace bullet
 {
+
+namespace
+{
+struct QueryContactResultCallback : public btCollisionWorld::ContactResultCallback
+{
+	QueryContactResultCallback (logger::ILogger* logger, std::vector<boost::variant<RigidBodyObjectHandle, GhostObjectHandle>>& result)
+	:
+		logger_(logger),
+		result_(result)
+	{
+	}
+
+    btScalar addSingleResult(btManifoldPoint& cp,
+        const btCollisionObjectWrapper* colObj0Wrap,
+        int partId0,
+        int index0,
+        const btCollisionObjectWrapper* colObj1Wrap,
+        int partId1,
+        int index1)
+    {
+    	if (cp.getDistance() < 0.0f)
+    	{
+			auto bulletUserData = static_cast<BulletUserData*>(colObj1Wrap->getCollisionObject()->getUserPointer());
+			switch (bulletUserData->type)
+			{
+				case BulletCollisionObjectType::RIGID_BODY:
+					result_.emplace_back(bulletUserData->rigidBodyObjectHandle);
+					break;
+
+				case BulletCollisionObjectType::GHOST:
+					result_.emplace_back(bulletUserData->ghostObjectHandle);
+					break;
+
+				case BulletCollisionObjectType::UNKNOWN:
+					LOG_WARN(logger_, "BulletCollisionObjectType set to Unknown");
+					break;
+
+				default:
+					LOG_WARN(logger_, "Unknown BulletCollisionObjectType");
+					break;
+			}
+    	}
+    }
+
+private:
+    logger::ILogger* logger_;
+    std::vector<boost::variant<RigidBodyObjectHandle, GhostObjectHandle>>& result_;
+};
+}
 
 Bullet::Bullet(ice_engine::utilities::Properties* properties, fs::IFileSystem* fileSystem, logger::ILogger* logger)
 {
@@ -297,7 +346,7 @@ GhostObjectHandle Bullet::createGhostObject(
 	auto ghostPointer = ghostObjectData.ghostObject.get();
 	//ghostPointer->setUserPointer(ghostDataPointer);
 
-	physicsScene.dynamicsWorld->addCollisionObject(ghostPointer);
+	physicsScene.dynamicsWorld->addCollisionObject(ghostPointer, btBroadphaseProxy::SensorTrigger, btBroadphaseProxy::AllFilter);
 
 	//physicsScenes_[physicsSceneHandle].dynamicsWorld->getBroadphase()->getOverlappingPairCache()->setInternalGhostPairCallback(new btGhostPairCallback());
 
@@ -401,8 +450,6 @@ Raycast Bullet::raycast(const PhysicsSceneHandle& physicsSceneHandle, const ray:
 			}
 
 			auto bulletUserData = static_cast<BulletUserData*>(rayCallback.m_collisionObject->getUserPointer());
-			std::cout << bulletUserData->type << std::endl;
-			std::cout << rayCallback.m_collisionObject->getInternalType() << std::endl;
 			switch (bulletUserData->type)
 			{
 				case BulletCollisionObjectType::RIGID_BODY:
@@ -423,6 +470,173 @@ Raycast Bullet::raycast(const PhysicsSceneHandle& physicsSceneHandle, const ray:
 			}
 		}
 	}
+
+	return result;
+}
+
+std::vector<boost::variant<RigidBodyObjectHandle, GhostObjectHandle>> Bullet::query(const PhysicsSceneHandle& physicsSceneHandle, const glm::vec3& origin, const std::vector<glm::vec3>& points)
+{
+	std::vector<boost::variant<RigidBodyObjectHandle, GhostObjectHandle>> result;
+
+//	btConvexHullShape*  shape = new btConvexHullShape(reinterpret_cast<const btScalar*>(&points[0]), points.size(), sizeof(glm::vec3));
+	btConvexHullShape shape;
+	for (const auto& point : points) shape.addPoint(utilities::convert(point));
+
+//	btSphereShape*  shape = new btSphereShape(4);
+	btPairCachingGhostObject ghost;
+
+	btTransform transform;
+	transform.setIdentity();
+	transform.setOrigin(utilities::convert(origin));
+
+//	btDefaultMotionState* myMotionState = new btDefaultMotionState(transform);
+//	btRigidBody::btRigidBodyConstructionInfo constructionInfo(1, myMotionState, shape);
+//	btRigidBody*  ghost = new btRigidBody(constructionInfo);
+
+	ghost.setCollisionShape(&shape);
+	ghost.setWorldTransform(transform);
+	ghost.setCollisionFlags(btCollisionObject::CF_NO_CONTACT_RESPONSE);
+
+	auto& dynamicsWorld = physicsScenes_[physicsSceneHandle].dynamicsWorld;
+	dynamicsWorld->addCollisionObject(&ghost);
+
+	QueryContactResultCallback  resultCallback(logger_, result);
+
+	for (int i = 0; i < ghost.getNumOverlappingObjects(); ++i)
+	{
+	    auto object = ghost.getOverlappingObject(i);
+
+	    if (object != nullptr)
+		{
+			if (object->getUserPointer() == nullptr)
+			{
+				LOG_WARN(logger_, "Bullet collision object has a null user pointer.");
+			}
+
+			dynamicsWorld->contactPairTest(&ghost, object, resultCallback);
+		}
+	}
+
+//	dynamicsWorld->performDiscreteCollisionDetection();
+
+//	btManifoldArray manifoldArray;
+//	btBroadphasePairArray& pairArray = ghost->getOverlappingPairCache()->getOverlappingPairArray();
+//
+//	int numPairs = pairArray.size();
+//
+//	std::cout << "numPairs "<< numPairs << std::endl;
+//	for (int i=0; i < numPairs; ++i)
+//	{
+//		manifoldArray.clear();
+//		const btBroadphasePair& pair = pairArray[i];
+//
+//		//unless we manually perform collision detection on this pair, the contacts are in the dynamics world paircache:
+//		btBroadphasePair* collisionPair = dynamicsWorld->getPairCache()->findPair(pair.m_pProxy0,pair.m_pProxy1);
+////		btDispatcher* dispatcher = dynamicsWorld->getDispatcher()->;
+//
+//		std::cout << "checking pair "<< (collisionPair ? "true" : "false") << std::endl;
+//		if (!collisionPair)	continue;
+//
+//		std::cout << "collisionPair->m_algorithm "<< (collisionPair->m_algorithm ? "true" : "false") << std::endl;
+//		if (collisionPair->m_algorithm) collisionPair->m_algorithm->getAllContactManifolds(manifoldArray);
+//
+//		std::cout << "manifoldArray.size() "<< manifoldArray.size() << std::endl;
+//		for (int j=0; j < manifoldArray.size(); ++j)
+//		{
+//			btPersistentManifold* manifold = manifoldArray[j];
+////			btScalar directionSign = manifold->getBody0() == ghost ? btScalar(-1.0) : btScalar(1.0);
+//
+//			std::cout << "manifold->getNumContacts() "<< manifold->getNumContacts() << std::endl;
+//			for (int p=0; p < manifold->getNumContacts(); ++p)
+//			{
+//				const btManifoldPoint& pt = manifold->getContactPoint(p);
+//
+//				std::cout << "pt.getDistance() "<< pt.getDistance() << std::endl;
+//				if (pt.getDistance() < 0.0f)
+//				{
+////					const btVector3& ptA = pt.getPositionWorldOnA();
+////					const btVector3& ptB = pt.getPositionWorldOnB();
+////					const btVector3& normalOnB = pt.m_normalWorldOnB;
+//
+////				    auto object = ghost->getOverlappingObject(i);
+//				    auto object = manifold->getBody0() == ghost ? manifold->getBody1() : manifold->getBody0();
+//
+//				    if (object != nullptr)
+//					{
+//						if (object->getUserPointer() == nullptr)
+//						{
+//							LOG_WARN(logger_, "Bullet collision object has a null user pointer.");
+//						}
+//
+//						auto bulletUserData = static_cast<BulletUserData*>(object->getUserPointer());
+//						std::cout << bulletUserData->type << std::endl;
+//						std::cout << object->getInternalType() << std::endl;
+//						switch (bulletUserData->type)
+//						{
+//							case BulletCollisionObjectType::RIGID_BODY:
+//								result.emplace_back(bulletUserData->rigidBodyObjectHandle);
+//								break;
+//
+//							case BulletCollisionObjectType::GHOST:
+//								result.emplace_back(bulletUserData->ghostObjectHandle);
+//								break;
+//
+//							case BulletCollisionObjectType::UNKNOWN:
+//								LOG_WARN(logger_, "BulletCollisionObjectType set to Unknown");
+//								break;
+//
+//							default:
+//								LOG_WARN(logger_, "Unknown BulletCollisionObjectType");
+//								break;
+//						}
+//					}
+//
+//				}
+//			}
+//		}
+//	}
+
+	dynamicsWorld->removeCollisionObject(&ghost);
+
+	return result;
+}
+
+std::vector<boost::variant<RigidBodyObjectHandle, GhostObjectHandle>> Bullet::query(const PhysicsSceneHandle& physicsSceneHandle, const glm::vec3& origin, const float32 radius)
+{
+	std::vector<boost::variant<RigidBodyObjectHandle, GhostObjectHandle>> result;
+
+	btSphereShape shape(radius);
+	btPairCachingGhostObject ghost;
+
+	btTransform transform;
+	transform.setIdentity();
+	transform.setOrigin(utilities::convert(origin));
+
+	ghost.setCollisionShape(&shape);
+	ghost.setWorldTransform(transform);
+	ghost.setCollisionFlags(btCollisionObject::CF_NO_CONTACT_RESPONSE);
+
+	auto& dynamicsWorld = physicsScenes_[physicsSceneHandle].dynamicsWorld;
+	dynamicsWorld->addCollisionObject(&ghost);
+
+	QueryContactResultCallback  resultCallback(logger_, result);
+
+	for (int i = 0; i < ghost.getNumOverlappingObjects(); ++i)
+	{
+	    auto object = ghost.getOverlappingObject(i);
+
+	    if (object != nullptr)
+		{
+			if (object->getUserPointer() == nullptr)
+			{
+				LOG_WARN(logger_, "Bullet collision object has a null user pointer.");
+			}
+
+			dynamicsWorld->contactPairTest(&ghost, object, resultCallback);
+		}
+	}
+
+	dynamicsWorld->removeCollisionObject(&ghost);
 
 	return result;
 }

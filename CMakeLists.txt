@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(BULLET_PLUGIN_COMPILER_FLAGS "")
+set(BULLET_PLUGIN_DEFINITIONS "")
 if(MSVC)
   set(BULLET_PLUGIN_COMPILER_FLAGS "/EHsc /MP")
   if(CMAKE_BUILD_TYPE MATCHES DEBUG)
@@ -51,6 +52,14 @@ unset(LIB_DESTINATION)
 unset(BUILD_SHARED_LIBS CACHE)
 unset(BUILD_SHARED_LIBS)
 
+if(CMAKE_BUILD_TYPE MATCHES Debug OR CMAKE_BUILD_TYPE MATCHES RelWithDebInfo OR ICEENGINE_ENABLE_DEBUG_LOGGING)
+  list(APPEND BULLET_PLUGIN_DEFINITIONS -DICEENGINE_ENABLE_DEBUG_LOGGING)
+endif()
+
+if(ICEENGINE_ENABLE_TRACE_LOGGING)
+  list(APPEND BULLET_PLUGIN_DEFINITIONS -DICEENGINE_ENABLE_TRACE_LOGGING)
+endif()
+
 # Headers
 include_directories(include)
 
@@ -64,6 +73,7 @@ target_include_directories(bullet_plugin PRIVATE ${BOOST_INCLUDE_DIRS})
 target_include_directories(bullet_plugin PRIVATE ${GLM_INCLUDE_DIRS})
 target_include_directories(bullet_plugin PRIVATE ./bullet/bullet3/src)
 
+target_compile_definitions(bullet_plugin PRIVATE ${BULLET_PLUGIN_DEFINITIONS})
 target_compile_options(bullet_plugin PRIVATE ${BULLET_PLUGIN_COMPILER_FLAGS})
 
 target_link_libraries(bullet_plugin Bullet3Common)

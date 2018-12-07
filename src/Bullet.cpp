@@ -154,7 +154,7 @@ CollisionShapeHandle Bullet::createStaticBoxShape(const glm::vec3& dimensions)
 	return CollisionShapeHandle(index, 1);
 }
 
-std::vector<char> heightMapData;
+std::vector<byte> heightMapData;
 CollisionShapeHandle Bullet::createStaticTerrainShape(const IHeightfield* heightfield)
 {
 	//(128, 128, data, 1, -1024, 1016, 2, PHY_UCHAR, true);
@@ -229,7 +229,7 @@ RigidBodyObjectHandle Bullet::createRigidBodyObject(
 	{
 		shape->calculateLocalInertia(bulletMass, localInertia);
 	}
-	
+
 	auto& physicsScene = physicsScenes_[physicsSceneHandle];
 
 	auto rigidBodyObjectHandle = physicsScene.rigidBodyData.create();//std::make_unique<BulletRigidBodyData>();
@@ -749,12 +749,12 @@ void Bullet::position(const PhysicsSceneHandle& physicsSceneHandle, const GhostO
 
 	const btVector3 pos = btVector3(position.x, position.y, position.z);
 	transform.setOrigin(pos);
-	
+
 	//ghostObjectData->ghostObject->setCenterOfMassTransform(transform);
 	//ghostObjectData->ghostObject->clearForces();
 	//ghostObjectData->ghostObject->setLinearVelocity(btVector3(0,0,0));
 	//ghostObjectData->ghostObject->setAngularVelocity(btVector3(0,0,0));
-	
+
 	ghostObjectData->ghostObject->setWorldTransform(transform);
 	//ghostObjectData->ghostObject->getMotionState()->setWorldTransform(transform);
 }
@@ -789,7 +789,7 @@ float32 Bullet::mass(const PhysicsSceneHandle& physicsSceneHandle, const RigidBo
 	auto rigidBodyData = static_cast<BulletRigidBodyData*>(rigidBodyObjectHandle.get());
 
 	const auto inverseMass = rigidBodyData->rigidBody->getInvMass();
-	
+
 	return pow(inverseMass, -1.0f);
 }
 

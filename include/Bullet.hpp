@@ -92,8 +92,9 @@ public:
 	Bullet(const Bullet& other) = delete;
 
 	virtual void tick(const PhysicsSceneHandle& physicsSceneHandle, const float32 delta) override;
+    void renderDebug(const PhysicsSceneHandle& physicsSceneHandle) override;
 
-	virtual PhysicsSceneHandle createPhysicsScene() override;
+    virtual PhysicsSceneHandle createPhysicsScene() override;
 	virtual void destroyPhysicsScene(const PhysicsSceneHandle& physicsSceneHandle) override;
 
 	virtual void setGravity(const PhysicsSceneHandle& physicsSceneHandle, const glm::vec3& gravity) override;
@@ -103,7 +104,8 @@ public:
 
 	virtual CollisionShapeHandle createStaticPlaneShape(const glm::vec3& planeNormal, const float32 planeConstant) override;
 	virtual CollisionShapeHandle createStaticBoxShape(const glm::vec3& dimensions) override;
-	virtual CollisionShapeHandle createStaticTerrainShape(const IHeightfield* heightfield) override;
+    virtual CollisionShapeHandle createStaticSphereShape(const float32 radius) override;
+    virtual CollisionShapeHandle createStaticTerrainShape(const IHeightfield* heightfield) override;
 	virtual void destroyStaticShape(const CollisionShapeHandle& collisionShapeHandle) override;
 	virtual void destroyAllStaticShapes() override;
 

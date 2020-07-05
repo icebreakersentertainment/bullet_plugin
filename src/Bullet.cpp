@@ -75,11 +75,16 @@ void Bullet::tick(const PhysicsSceneHandle& physicsSceneHandle, const float32 de
 	auto& physicsScene = physicsScenes_[physicsSceneHandle];
 
 	physicsScene.dynamicsWorld->stepSimulation(delta, 1, 1.0f / 60.0f);
+}
 
-	if (physicsScene.debugRendering)
-	{
-		physicsScene.dynamicsWorld->debugDrawWorld();
-	}
+void Bullet::renderDebug(const PhysicsSceneHandle& physicsSceneHandle)
+{
+    auto& physicsScene = physicsScenes_[physicsSceneHandle];
+
+    if (physicsScene.debugRendering)
+    {
+        physicsScene.dynamicsWorld->debugDrawWorld();
+    }
 }
 
 PhysicsSceneHandle Bullet::createPhysicsScene()
@@ -152,6 +157,15 @@ CollisionShapeHandle Bullet::createStaticBoxShape(const glm::vec3& dimensions)
 	auto index = shapes_.size() - 1;
 
 	return CollisionShapeHandle(index, 1);
+}
+
+CollisionShapeHandle Bullet::createStaticSphereShape(const float32 radius) {
+    auto shape = std::make_unique<btSphereShape>(btScalar(radius));
+
+    shapes_.push_back(std::move(shape));
+    auto index = shapes_.size() - 1;
+
+    return CollisionShapeHandle(index);
 }
 
 std::vector<byte> heightMapData;

@@ -154,7 +154,7 @@ CollisionShapeHandle Bullet::createStaticBoxShape(const glm::vec3& dimensions)
 	auto shape = std::make_unique<btBoxShape>(btVector3(dimensions.x, dimensions.y, dimensions.z));
 
 	shapes_.push_back(std::move(shape));
-	auto index = shapes_.size() - 1;
+	const uint32 index = static_cast<uint32>(shapes_.size() - 1);
 
 	return CollisionShapeHandle(index, 1);
 }
@@ -181,7 +181,7 @@ CollisionShapeHandle Bullet::createStaticTerrainShape(const IHeightfield* height
 	shape->setLocalScaling(localScaling);
 
 	shapes_.push_back(std::move(shape));
-	auto index = shapes_.size() - 1;
+	const uint32 index = static_cast<uint32>(shapes_.size() - 1);
 
 	return CollisionShapeHandle(index, 1);
 }

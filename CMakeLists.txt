@@ -13,6 +13,14 @@ if(MSVC)
   endif()
 endif()
 
+if(CMAKE_BUILD_TYPE MATCHES Debug OR CMAKE_BUILD_TYPE MATCHES RelWithDebInfo OR ICEENGINE_ENABLE_DEBUG_LOGGING)
+  list(APPEND BULLET_PLUGIN_DEFINITIONS -DICEENGINE_ENABLE_DEBUG_LOGGING)
+endif()
+
+if(ICEENGINE_ENABLE_TRACE_LOGGING)
+  list(APPEND BULLET_PLUGIN_DEFINITIONS -DICEENGINE_ENABLE_TRACE_LOGGING)
+endif()
+
 set(BUILD_BULLET2_DEMOS OFF CACHE BOOL "" FORCE)
 set(BUILD_CPU_DEMOS OFF CACHE BOOL "" FORCE)
 set(BUILD_OPENGL3_DEMOS OFF CACHE BOOL "" FORCE)
@@ -52,31 +60,26 @@ unset(LIB_DESTINATION)
 unset(BUILD_SHARED_LIBS CACHE)
 unset(BUILD_SHARED_LIBS)
 
-if(CMAKE_BUILD_TYPE MATCHES Debug OR CMAKE_BUILD_TYPE MATCHES RelWithDebInfo OR ICEENGINE_ENABLE_DEBUG_LOGGING)
-  list(APPEND BULLET_PLUGIN_DEFINITIONS -DICEENGINE_ENABLE_DEBUG_LOGGING)
-endif()
-
-if(ICEENGINE_ENABLE_TRACE_LOGGING)
-  list(APPEND BULLET_PLUGIN_DEFINITIONS -DICEENGINE_ENABLE_TRACE_LOGGING)
-endif()
-
-# Headers
-include_directories(include)
+find_package(glm REQUIRED)
+find_package(Boost REQUIRED)
 
 # Source
 file(GLOB_RECURSE SOURCES "src/*.cpp")
 
 add_library(bullet_plugin SHARED ${SOURCES})
 
+# Headers
+target_include_directories(bullet_plugin PRIVATE include)
+
 target_include_directories(bullet_plugin PRIVATE ${ICEENGINE_INCLUDE_DIRS})
-target_include_directories(bullet_plugin PRIVATE ${BOOST_INCLUDE_DIRS})
-target_include_directories(bullet_plugin PRIVATE ${GLM_INCLUDE_DIRS})
+target_include_directories(bullet_plugin PRIVATE ${Boost_INCLUDE_DIRS})
 target_include_directories(bullet_plugin PRIVATE ./bullet/bullet3/src)
 
 target_compile_definitions(bullet_plugin PRIVATE ${BULLET_PLUGIN_DEFINITIONS})
 target_compile_options(bullet_plugin PRIVATE ${BULLET_PLUGIN_COMPILER_FLAGS})
 
-target_link_libraries(bullet_plugin Bullet3Common)
-target_link_libraries(bullet_plugin BulletDynamics)
-target_link_libraries(bullet_plugin BulletCollision)
-target_link_libraries(bullet_plugin LinearMath)
+target_link_libraries(bullet_plugin PRIVATE glm::glm)
+target_link_libraries(bullet_plugin PRIVATE Bullet3Common)
+target_link_libraries(bullet_plugin PRIVATE BulletDynamics)
+target_link_libraries(bullet_plugin PRIVATE BulletCollision)
+target_link_libraries(bullet_plugin PRIVATE LinearMath)

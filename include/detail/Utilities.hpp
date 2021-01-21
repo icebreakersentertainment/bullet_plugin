@@ -14,27 +14,27 @@ namespace physics
 {
 namespace bullet
 {
-namespace utilities
+namespace detail
 {
 
 // Bullet to GLM
-inline glm::vec3 convert(const btVector3& bulletVector3)
+inline glm::vec3 toGlm(const btVector3& bulletVector3)
 {
 	return glm::vec3(bulletVector3.x(), bulletVector3.y(), bulletVector3.z());
 };
 
-inline glm::quat convert(const btQuaternion& bulletQuaternion)
+inline glm::quat toGlm(const btQuaternion& bulletQuaternion)
 {
 	return glm::quat(bulletQuaternion.w(), bulletQuaternion.x(), bulletQuaternion.y(), bulletQuaternion.z());
 };
 
 // GLM to Bullet
-inline btVector3 convert(const glm::vec3& glmVector3)
+inline btVector3 toBullet(const glm::vec3& glmVector3)
 {
 	return btVector3(glmVector3.x, glmVector3.y, glmVector3.z);
 };
 
-inline btQuaternion convert(const glm::quat& glmQuat)
+inline btQuaternion toBullet(const glm::quat& glmQuat)
 {
 	return btQuaternion(glmQuat.x, glmQuat.y, glmQuat.z, glmQuat.w);
 };

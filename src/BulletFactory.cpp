@@ -10,9 +10,9 @@ namespace bullet
 {
 
 std::unique_ptr<IPhysicsEngine> BulletFactory::create(
-	utilities::Properties* properties,
-	fs::IFileSystem* fileSystem,
-	logger::ILogger* logger
+        utilities::Properties* properties,
+        fs::IFileSystem* fileSystem,
+        logger::ILogger* logger
 )
 {
 	std::unique_ptr<IPhysicsEngine> ptr = std::make_unique< Bullet >(

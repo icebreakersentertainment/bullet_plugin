@@ -4,8 +4,11 @@
 #include "logger/ILogger.hpp"
 
 #include "Bullet.hpp"
-#include "utilities/Utilities.hpp"
-#include "physics/CollisionShapeHandle.hpp"
+#include "detail/Utilities.hpp"
+
+#include "detail/BulletDebugSerializer.hpp"
+
+#include "detail/Validation.hpp"
 
 namespace ice_engine
 {
@@ -64,14 +67,18 @@ private:
 }
 
 Bullet::Bullet(ice_engine::utilities::Properties* properties, fs::IFileSystem* fileSystem, logger::ILogger* logger)
+    :
+    properties_(properties),
+    fileSystem_(fileSystem),
+    logger_(logger)
 {
-	properties_ = properties;
-	fileSystem_ = fileSystem;
-	logger_ = logger;
+    LOG_INFO(logger_, "Initializing bullet physics engine.");
 }
 
 void Bullet::tick(const PhysicsSceneHandle& physicsSceneHandle, const float32 delta)
 {
+    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+
 	auto& physicsScene = physicsScenes_[physicsSceneHandle];
 
 	physicsScene.dynamicsWorld->stepSimulation(delta, 1, 1.0f / 60.0f);
@@ -89,7 +96,9 @@ void Bullet::renderDebug(const PhysicsSceneHandle& physicsSceneHandle)
 
 PhysicsSceneHandle Bullet::createPhysicsScene()
 {
-	auto physicsSceneHandle = physicsScenes_.create();
+    LOG_DEBUG(logger_, "Creating scene.");
+
+	const auto physicsSceneHandle = physicsScenes_.create();
 	auto& physicsScene = physicsScenes_[physicsSceneHandle];
 
 	physicsScene.broadphase = std::make_unique<btDbvtBroadphase>();
@@ -102,29 +111,41 @@ PhysicsSceneHandle Bullet::createPhysicsScene()
 	physicsScene.solver->reset();
 	physicsScene.solver->setRandSeed(100);
 
+	physicsScene.overlappingPairCallback = std::make_unique<btGhostPairCallback>();
+
 	physicsScene.dynamicsWorld = std::make_unique<btDiscreteDynamicsWorld>(physicsScene.dispatcher.get(), physicsScene.broadphase.get(), physicsScene.solver.get(), physicsScene.collisionConfiguration.get());
 
 	physicsScene.dynamicsWorld->setGravity(btVector3(0, -10, 0));
 	physicsScene.dynamicsWorld->getSolverInfo().m_solverMode = 0;
-	physicsScene.dynamicsWorld->getPairCache()->setInternalGhostPairCallback(new btGhostPairCallback());
+	physicsScene.dynamicsWorld->getPairCache()->setInternalGhostPairCallback(physicsScene.overlappingPairCallback.get());
 
 	physicsScene.dynamicsWorld->setDebugDrawer(debugRenderer_.get());
 
 	return physicsSceneHandle;
 }
 
-void Bullet::destroyPhysicsScene(const PhysicsSceneHandle& physicsSceneHandle)
+void Bullet::destroy(const PhysicsSceneHandle& physicsSceneHandle)
 {
+    LOG_DEBUG(logger_, "Destroying scene %s.", physicsSceneHandle);
+
+    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+
 	physicsScenes_.destroy(physicsSceneHandle);
 }
 
 void Bullet::setGravity(const PhysicsSceneHandle& physicsSceneHandle, const glm::vec3& gravity)
 {
+    LOG_DEBUG(logger_, "Setting gravity for scene %s to %s.", physicsSceneHandle, gravity);
+
+    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+
 	physicsScenes_[physicsSceneHandle].dynamicsWorld->setGravity(btVector3(gravity.x, gravity.y, gravity.z));
 }
 
 void Bullet::setPhysicsDebugRenderer(IPhysicsDebugRenderer* physicsDebugRenderer)
 {
+    LOG_DEBUG(logger_, "Setting physics debug renderer.");
+
 	debugRenderer_ = std::make_unique<DebugRenderer>(physicsDebugRenderer);
 
 	for (auto& scene : physicsScenes_)
@@ -135,58 +156,70 @@ void Bullet::setPhysicsDebugRenderer(IPhysicsDebugRenderer* physicsDebugRenderer
 
 void Bullet::setDebugRendering(const PhysicsSceneHandle& physicsSceneHandle, const bool enabled)
 {
+    LOG_DEBUG(logger_, "Set debug rendering for scene %s to %s.", physicsSceneHandle, enabled);
+
+    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+
 	auto& physicsScene = physicsScenes_[physicsSceneHandle];
 	physicsScene.debugRendering = enabled;
 }
 
 CollisionShapeHandle Bullet::createStaticPlaneShape(const glm::vec3& planeNormal, const float32 planeConstant)
 {
-	auto shape = std::make_unique<btStaticPlaneShape>(btVector3(planeNormal.x, planeNormal.y, planeNormal.z), btScalar(planeConstant));
+    LOG_DEBUG(logger_, "Creating static box plane with normal %s and planeConstant %s.", planeNormal, planeConstant);
 
-	shapes_.push_back(std::move(shape));
-	auto index = shapes_.size() - 1;
+    const auto collisionShapeHandle = shapes_.create();
+    auto& shape = shapes_[collisionShapeHandle];
 
-	return CollisionShapeHandle(index);
+	shape.collisionShape = std::make_unique<btStaticPlaneShape>(btVector3(planeNormal.x, planeNormal.y, planeNormal.z), btScalar(planeConstant));
+
+	return collisionShapeHandle;
 }
 
 CollisionShapeHandle Bullet::createStaticBoxShape(const glm::vec3& dimensions)
 {
-	auto shape = std::make_unique<btBoxShape>(btVector3(dimensions.x, dimensions.y, dimensions.z));
+    LOG_DEBUG(logger_, "Creating static box shape with dimensions %s.", dimensions);
 
-	shapes_.push_back(std::move(shape));
-	const uint32 index = static_cast<uint32>(shapes_.size() - 1);
+    const auto collisionShapeHandle = shapes_.create();
+    auto& shape = shapes_[collisionShapeHandle];
 
-	return CollisionShapeHandle(index, 1);
+    shape.collisionShape = std::make_unique<btBoxShape>(btVector3(dimensions.x, dimensions.y, dimensions.z));
+
+    return collisionShapeHandle;
 }
 
 CollisionShapeHandle Bullet::createStaticSphereShape(const float32 radius) {
-    auto shape = std::make_unique<btSphereShape>(btScalar(radius));
+    LOG_DEBUG(logger_, "Creating static sphere shape with radius %s.", radius);
 
-    shapes_.push_back(std::move(shape));
-    auto index = shapes_.size() - 1;
+    const auto collisionShapeHandle = shapes_.create();
+    auto& shape = shapes_[collisionShapeHandle];
 
-    return CollisionShapeHandle(index);
+    shape.collisionShape = std::make_unique<btSphereShape>(btScalar(radius));
+
+    return collisionShapeHandle;
 }
 
 std::vector<byte> heightMapData;
-CollisionShapeHandle Bullet::createStaticTerrainShape(const IHeightfield* heightfield)
+CollisionShapeHandle Bullet::createStaticTerrainShape(const IHeightfield& heightfield)
 {
-	//(128, 128, data, 1, -1024, 1016, 2, PHY_UCHAR, true);
-	heightMapData = heightfield->data();
+    LOG_DEBUG(logger_, "Creating static terrain shape.");
 
-	auto shape = std::make_unique<btHeightfieldTerrainShape>(heightfield->width(), heightfield->length(), &heightMapData[0], 1.0f/255.0f, -1.0f, 1.0f, 1, PHY_UCHAR, true);
+    const auto collisionShapeHandle = shapes_.create();
+    auto& shape = shapes_[collisionShapeHandle];
+
+	//(128, 128, data, 1, -1024, 1016, 2, PHY_UCHAR, true);
+	heightMapData = heightfield.data();
+
+	shape.collisionShape = std::make_unique<btHeightfieldTerrainShape>(heightfield.width(), heightfield.length(), &heightMapData[0], 1.0f/255.0f, -1.0f, 1.0f, 1, PHY_UCHAR, true);
 
 	float32 scale = 1.0f;
 	btVector3 localScaling = btVector3(scale, 15.0f, scale);
-	shape->setLocalScaling(localScaling);
+	shape.collisionShape->setLocalScaling(localScaling);
 
-	shapes_.push_back(std::move(shape));
-	const uint32 index = static_cast<uint32>(shapes_.size() - 1);
-
-	return CollisionShapeHandle(index, 1);
+    return collisionShapeHandle;
 }
 
-void Bullet::destroyStaticShape(const CollisionShapeHandle& collisionShapeHandle)
+void Bullet::destroy(const CollisionShapeHandle& collisionShapeHandle)
 {
 	throw std::logic_error("Method not implemented");
 }
@@ -203,7 +236,7 @@ RigidBodyObjectHandle Bullet::createRigidBodyObject(
 	const boost::any& userData
 )
 {
-	return createRigidBodyObject(physicsSceneHandle, collisionShapeHandle, glm::vec3(), glm::quat(), 1.0f, 1.0f, 1.0f, std::move(motionStateListener), userData);
+	return createRigidBodyObject(physicsSceneHandle, collisionShapeHandle, glm::vec3(), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), 1.0f, 1.0f, 1.0f, std::move(motionStateListener), userData);
 }
 
 RigidBodyObjectHandle Bullet::createRigidBodyObject(
@@ -216,7 +249,7 @@ RigidBodyObjectHandle Bullet::createRigidBodyObject(
 	const boost::any& userData
 )
 {
-	return createRigidBodyObject(physicsSceneHandle, collisionShapeHandle, glm::vec3(), glm::quat(), mass, friction, restitution, std::move(motionStateListener), userData);
+	return createRigidBodyObject(physicsSceneHandle, collisionShapeHandle, glm::vec3(), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), mass, friction, restitution, std::move(motionStateListener), userData);
 }
 
 RigidBodyObjectHandle Bullet::createRigidBodyObject(
@@ -231,17 +264,22 @@ RigidBodyObjectHandle Bullet::createRigidBodyObject(
 	const boost::any& userData
 )
 {
-	auto& shape = shapes_[collisionShapeHandle.index()];
+    LOG_DEBUG(logger_, "Creating rigid body object for scene %s with collision shape %s and position = %s, orientation = %s, mass = %s, friction = %s, restitution = %s.", physicsSceneHandle, collisionShapeHandle, position, orientation, mass, friction, restitution);
+
+    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+    ice_engine::detail::checkHandleValidity(shapes_, collisionShapeHandle);
+
+	auto& shape = shapes_[collisionShapeHandle];
 
 	btTransform transform;
-	transform.setRotation( btQuaternion(orientation.x, orientation.y, orientation.z, orientation.w) );
-	transform.setOrigin( btVector3(position.x, position.y, position.z) );
+	transform.setRotation(detail::toBullet(orientation));
+	transform.setOrigin(detail::toBullet(position));
 
 	btScalar bulletMass(mass);
 	btVector3 localInertia(0.0f, 0.0f, 0.0f);
 	if (bulletMass != btScalar(0.0f))
 	{
-		shape->calculateLocalInertia(bulletMass, localInertia);
+		shape.collisionShape->calculateLocalInertia(bulletMass, localInertia);
 	}
 
 	auto& physicsScene = physicsScenes_[physicsSceneHandle];
@@ -250,7 +288,7 @@ RigidBodyObjectHandle Bullet::createRigidBodyObject(
 	auto& rigidBodyData = physicsScene.rigidBodyData[rigidBodyObjectHandle];
 
 	rigidBodyData.motionState = std::make_unique<BulletMotionState>(transform, std::move(motionStateListener));
-	btRigidBody::btRigidBodyConstructionInfo constructionInfo(bulletMass, rigidBodyData.motionState.get(), shape.get(), localInertia);
+	btRigidBody::btRigidBodyConstructionInfo constructionInfo(bulletMass, rigidBodyData.motionState.get(), shape.collisionShape.get(), localInertia);
 	constructionInfo.m_friction = friction;
 	constructionInfo.m_restitution = restitution;
 	rigidBodyData.rigidBody = std::make_unique<btRigidBody>(constructionInfo);
@@ -317,7 +355,7 @@ RigidBodyObjectHandle Bullet::createRigidBodyObject(
 */
 GhostObjectHandle Bullet::createGhostObject(const PhysicsSceneHandle& physicsSceneHandle, const CollisionShapeHandle& collisionShapeHandle, const boost::any& userData)
 {
-	return createGhostObject(physicsSceneHandle, collisionShapeHandle, glm::vec3(), glm::quat(), userData);
+	return createGhostObject(physicsSceneHandle, collisionShapeHandle, glm::vec3(), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), userData);
 }
 
 GhostObjectHandle Bullet::createGhostObject(
@@ -328,11 +366,16 @@ GhostObjectHandle Bullet::createGhostObject(
 	const boost::any& userData
 )
 {
-	auto& shape = shapes_[collisionShapeHandle.index()];
+    LOG_DEBUG(logger_, "Creating ghost object for scene %s with collision shape %s and position = %s, orientation = %s.", physicsSceneHandle, collisionShapeHandle, position, orientation);
+
+    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+    ice_engine::detail::checkHandleValidity(shapes_, collisionShapeHandle);
+
+	auto& shape = shapes_[collisionShapeHandle];
 
 	btTransform transform;
-	transform.setRotation( btQuaternion(orientation.x, orientation.y, orientation.z, orientation.w) );
-	transform.setOrigin( btVector3(position.x, position.y, position.z) );
+	transform.setRotation(detail::toBullet(orientation));
+	transform.setOrigin(detail::toBullet(position));
 
 	//btVector3 localInertia(0.0f, 0.0f, 0.0f);
 	auto& physicsScene = physicsScenes_[physicsSceneHandle];
@@ -345,7 +388,7 @@ GhostObjectHandle Bullet::createGhostObject(
 	//constructionInfo.m_friction = friction;
 	//constructionInfo.m_restitution = restitution;
 	ghostObjectData.ghostObject = std::make_unique<btGhostObject>();
-	ghostObjectData.ghostObject->setCollisionShape(shape.get());
+	ghostObjectData.ghostObject->setCollisionShape(shape.collisionShape.get());
 	ghostObjectData.ghostObject->setWorldTransform(transform);
 	ghostObjectData.ghostObject->setCollisionFlags(ghostObjectData.ghostObject->getCollisionFlags() | btCollisionObject::CF_NO_CONTACT_RESPONSE);
 
@@ -369,6 +412,10 @@ GhostObjectHandle Bullet::createGhostObject(
 
 void Bullet::destroy(const PhysicsSceneHandle& physicsSceneHandle, const RigidBodyObjectHandle& rigidBodyObjectHandle)
 {
+    LOG_DEBUG(logger_, "Destroying rigid body object for scene %s and rigid body %s.", physicsSceneHandle, rigidBodyObjectHandle);
+
+    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+
 	//rigidBodyData_.destroy(rigidBodyObjectHandle);
 
 	BulletRigidBodyData* rigidBodyData = static_cast<BulletRigidBodyData*>(rigidBodyObjectHandle.get());
@@ -383,6 +430,9 @@ void Bullet::destroy(const PhysicsSceneHandle& physicsSceneHandle, const RigidBo
 
 void Bullet::destroy(const PhysicsSceneHandle& physicsSceneHandle, const GhostObjectHandle& ghostObjectHandle)
 {
+    LOG_DEBUG(logger_, "Destroying ghost object for scene %s and ghost object %s.", physicsSceneHandle, ghostObjectHandle);
+
+    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
 	//rigidBodyData_.destroy(rigidBodyObjectHandle);
 
 	BulletGhostObjectData* ghostObjectData = static_cast<BulletGhostObjectData*>(ghostObjectHandle.get());
@@ -402,6 +452,8 @@ void Bullet::destroyAllRigidBodies()
 
 void Bullet::setUserData(const PhysicsSceneHandle& physicsSceneHandle, const RigidBodyObjectHandle& rigidBodyObjectHandle, const boost::any& userData)
 {
+//    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+
 	auto rigidBodyData = static_cast<BulletRigidBodyData*>(rigidBodyObjectHandle.get());
 
 	//rigidBodyData->userData = std::make_unique<BulletUserData>();
@@ -414,6 +466,8 @@ void Bullet::setUserData(const PhysicsSceneHandle& physicsSceneHandle, const Rig
 
 void Bullet::setUserData(const PhysicsSceneHandle& physicsSceneHandle, const GhostObjectHandle& ghostObjectHandle, const boost::any& userData)
 {
+//    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+
 	auto ghostObjectData = static_cast<BulletGhostObjectData*>(ghostObjectHandle.get());
 
 	//ghostObjectData->userData = std::make_unique<BulletUserData>();
@@ -426,6 +480,8 @@ void Bullet::setUserData(const PhysicsSceneHandle& physicsSceneHandle, const Gho
 
 boost::any& Bullet::getUserData(const PhysicsSceneHandle& physicsSceneHandle, const RigidBodyObjectHandle& rigidBodyObjectHandle) const
 {
+//    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+
 	auto rigidBodyData = static_cast<BulletRigidBodyData*>(rigidBodyObjectHandle.get());
 
 	return rigidBodyData->userData->userData;
@@ -433,6 +489,8 @@ boost::any& Bullet::getUserData(const PhysicsSceneHandle& physicsSceneHandle, co
 
 boost::any& Bullet::getUserData(const PhysicsSceneHandle& physicsSceneHandle, const GhostObjectHandle& ghostObjectHandle) const
 {
+//    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+
 	auto ghostObjectData = static_cast<BulletGhostObjectData*>(ghostObjectHandle.get());
 
 	return ghostObjectData->userData->userData;
@@ -440,11 +498,13 @@ boost::any& Bullet::getUserData(const PhysicsSceneHandle& physicsSceneHandle, co
 
 Raycast Bullet::raycast(const PhysicsSceneHandle& physicsSceneHandle, const ray::Ray& ray)
 {
+//    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+
 	Raycast result;
 	result.setRay(ray);
 
-	btVector3 bulletVectorStart = utilities::convert(ray.from);
-	btVector3 bulletVectorEnd = utilities::convert(ray.to);
+	btVector3 bulletVectorStart = detail::toBullet(ray.from);
+	btVector3 bulletVectorEnd = detail::toBullet(ray.to);
 
 	btCollisionWorld::ClosestRayResultCallback rayCallback(bulletVectorStart, bulletVectorEnd);
 
@@ -453,8 +513,8 @@ Raycast Bullet::raycast(const PhysicsSceneHandle& physicsSceneHandle, const ray:
 
 	if (rayCallback.hasHit())
 	{
-	    result.setHitPointWorld(utilities::convert(rayCallback.m_hitPointWorld));
-	    result.setHitNormalWorld(utilities::convert(rayCallback.m_hitNormalWorld));
+	    result.setHitPointWorld(detail::toGlm(rayCallback.m_hitPointWorld));
+	    result.setHitNormalWorld(detail::toGlm(rayCallback.m_hitNormalWorld));
 
 	    if (rayCallback.m_collisionObject != nullptr)
 	    {
@@ -490,18 +550,20 @@ Raycast Bullet::raycast(const PhysicsSceneHandle& physicsSceneHandle, const ray:
 
 std::vector<boost::variant<RigidBodyObjectHandle, GhostObjectHandle>> Bullet::query(const PhysicsSceneHandle& physicsSceneHandle, const glm::vec3& origin, const std::vector<glm::vec3>& points)
 {
+//    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+
 	std::vector<boost::variant<RigidBodyObjectHandle, GhostObjectHandle>> result;
 
 //	btConvexHullShape*  shape = new btConvexHullShape(reinterpret_cast<const btScalar*>(&points[0]), points.size(), sizeof(glm::vec3));
 	btConvexHullShape shape;
-	for (const auto& point : points) shape.addPoint(utilities::convert(point));
+	for (const auto& point : points) shape.addPoint(detail::toBullet(point));
 
 //	btSphereShape*  shape = new btSphereShape(4);
 	btPairCachingGhostObject ghost;
 
 	btTransform transform;
 	transform.setIdentity();
-	transform.setOrigin(utilities::convert(origin));
+	transform.setOrigin(detail::toBullet(origin));
 
 //	btDefaultMotionState* myMotionState = new btDefaultMotionState(transform);
 //	btRigidBody::btRigidBodyConstructionInfo constructionInfo(1, myMotionState, shape);
@@ -617,6 +679,8 @@ std::vector<boost::variant<RigidBodyObjectHandle, GhostObjectHandle>> Bullet::qu
 
 std::vector<boost::variant<RigidBodyObjectHandle, GhostObjectHandle>> Bullet::query(const PhysicsSceneHandle& physicsSceneHandle, const glm::vec3& origin, const float32 radius)
 {
+//    ice_engine::detail::checkHandleValidity(physicsScenes_, physicsSceneHandle);
+
 	std::vector<boost::variant<RigidBodyObjectHandle, GhostObjectHandle>> result;
 
 	btSphereShape shape(radius);
@@ -624,7 +688,7 @@ std::vector<boost::variant<RigidBodyObjectHandle, GhostObjectHandle>> Bullet::qu
 
 	btTransform transform;
 	transform.setIdentity();
-	transform.setOrigin(utilities::convert(origin));
+	transform.setOrigin(detail::toBullet(origin));
 
 	ghost.setCollisionShape(&shape);
 	ghost.setWorldTransform(transform);
@@ -680,7 +744,7 @@ glm::quat Bullet::rotation(const PhysicsSceneHandle& physicsSceneHandle, const R
 
 	const btQuaternion rotation = rigidBodyData->motionState->getWorldTransform().getRotation();
 
-	return glm::quat(rotation.w(), rotation.x(), rotation.y(), rotation.z());
+	return detail::toGlm(rotation);
 }
 
 void Bullet::rotation(const PhysicsSceneHandle& physicsSceneHandle, const GhostObjectHandle& ghostObjectHandle, const glm::quat& orientation)
@@ -701,7 +765,7 @@ glm::quat Bullet::rotation(const PhysicsSceneHandle& physicsSceneHandle, const G
 
 	const btQuaternion rotation = ghostData->ghostObject->getWorldTransform().getRotation();
 
-	return glm::quat(rotation.w(), rotation.x(), rotation.y(), rotation.z());
+	return detail::toGlm(rotation);
 }
 
 void Bullet::position(const PhysicsSceneHandle& physicsSceneHandle, const RigidBodyObjectHandle& rigidBodyObjectHandle, const float32 x, const float32 y, const float32 z)
@@ -722,7 +786,7 @@ void Bullet::position(const PhysicsSceneHandle& physicsSceneHandle, const RigidB
 
 	btTransform transform = rigidBodyData->motionState->getWorldTransform();
 
-	const btVector3 pos = btVector3(position.x, position.y, position.z);
+	const btVector3 pos = detail::toBullet(position);
 	transform.setOrigin(pos);
 
 	//rigidBodyData->rigidBody->setCenterOfMassTransform(transform);
@@ -740,7 +804,7 @@ glm::vec3 Bullet::position(const PhysicsSceneHandle& physicsSceneHandle, const R
 
 	const btVector3 position = rigidBodyData->motionState->getWorldTransform().getOrigin();
 
-	return glm::vec3(position.x(), position.y(), position.z());
+	return detail::toGlm(position);
 }
 
 void Bullet::position(const PhysicsSceneHandle& physicsSceneHandle, const GhostObjectHandle& ghostObjectHandle, const float32 x, const float32 y, const float32 z)
@@ -761,7 +825,7 @@ void Bullet::position(const PhysicsSceneHandle& physicsSceneHandle, const GhostO
 
 	btTransform transform = ghostObjectData->ghostObject->getWorldTransform();
 
-	const btVector3 pos = btVector3(position.x, position.y, position.z);
+	const btVector3 pos = detail::toBullet(position);
 	transform.setOrigin(pos);
 
 	//ghostObjectData->ghostObject->setCenterOfMassTransform(transform);
@@ -779,7 +843,7 @@ glm::vec3 Bullet::position(const PhysicsSceneHandle& physicsSceneHandle, const G
 
 	const btVector3 position = ghostObjectData->ghostObject->getWorldTransform().getOrigin();
 
-	return glm::vec3(position.x(), position.y(), position.z());
+	return detail::toGlm(position);
 }
 
 void Bullet::mass(const PhysicsSceneHandle& physicsSceneHandle, const RigidBodyObjectHandle& rigidBodyObjectHandle, const float32 mass)

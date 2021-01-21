@@ -5,6 +5,8 @@
 
 #include "physics/IMotionChangeListener.hpp"
 
+#include "detail/Utilities.hpp"
+
 namespace ice_engine
 {
 namespace physics
@@ -51,7 +53,7 @@ public:
 		const btQuaternion rot = worldTrans.getRotation();
 		const btVector3 pos = worldTrans.getOrigin();
 		
-		motionStateListener_->update(glm::vec3(pos.x(), pos.y(), pos.z()), glm::quat(rot.w(), rot.x(), rot.y(), rot.z()));
+		motionStateListener_->update(detail::toGlm(pos), detail::toGlm(rot));
 	}
 
 private:
